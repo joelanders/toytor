@@ -1,0 +1,8 @@
+scapy-python3
+pytest
+pytest-asyncio
+aiohttp
+aiomanhole
+pycrypto
+pyOpenSSL
+git+https://git.torproject.org/stem.git

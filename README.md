@@ -25,18 +25,27 @@ https://github.com/cea-sec/TorPylle for the cell parsing
 and i'm using the python implementation of ntor from tor's src/test/ntor_ref.py
 and Matthew Dempsky's "Slownacl" curve25519 implementation.
 
-# TESTING
+# RUNNING / TESTING
 I'm running this thing against a local network of real tor clients on my laptop
 with Chutney (https://git.torproject.org/chutney.git).
+
+```
+virtualenv -p python3.5 .env
+source .env/bin/activate
+pip3 install -r requirements.txt
+python3.5 certs.py
+PYTHONPATH=$PWD py.test
+python3.5 main.py
+```
 
 # OUTPUT
 example session of what I type into the control server:
 ```
 l@tp ~ $ nc localhost 9090
-howdy
-consensus
-client 69 770AE32FA54C49A984C2AF158F1DB65BA30C98A3
-extend 69 4EF24703077A84BDE437E1381F878E0DA63E9AED
+howdy      # server says hello
+consensus  # fetch consensus
+client 69 770AE32FA54C49A984C2AF158F1DB65BA30C98A3  # create circuit
+extend 69 4EF24703077A84BDE437E1381F878E0DA63E9AED  # extend circuit
 ```
 
 example of the log messages from the main process:
