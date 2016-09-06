@@ -46,6 +46,7 @@ howdy      # server says hello
 consensus  # fetch consensus
 client 69 770AE32FA54C49A984C2AF158F1DB65BA30C98A3  # create circuit
 extend 69 4EF24703077A84BDE437E1381F878E0DA63E9AED  # extend circuit
+quit
 ```
 
 example of the log messages from the main process:
