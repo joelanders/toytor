@@ -4,6 +4,7 @@ from ..dummytransport import dummy_transport
 from ..common import read_cell
 # RELAY_BEGIN and the response is RELAY_END or RELAY_CONNECTED
 
+
 class TestAsyncRelayBegin:
     @pytest.mark.asyncio
     async def test_async_relay_begin(self):
@@ -26,9 +27,9 @@ class TestAsyncRelayBegin:
         relay_begin_cell = await read_cell(s_reader, None)
         # relay_connected_cell = await read_cell(c_reader, None)
 
-        server_stream = await handle_relay_begin(s_reader, s_writer, relay_begin_cell)
+        server_stream = await \
+            handle_relay_begin(s_reader, s_writer, relay_begin_cell)
         client_stream = await client_future
 
         print(server_stream)
         print(client_stream)
-

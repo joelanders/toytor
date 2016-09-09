@@ -11,8 +11,10 @@ import traceback
 import base64
 import logging
 
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
 
 class TorClient:
     def __init__(self, circ_id, ip, port, node_id, b_public):
@@ -20,7 +22,7 @@ class TorClient:
         self.ip = ip
         self.port = port
         self.node_id = bytes(bytearray.fromhex(node_id))
-        self.b_public= create.PublicKey(base64.b64decode(b_public))
+        self.b_public = create.PublicKey(base64.b64decode(b_public))
         self._reader = None
         self._writer = None
         self._version = None
@@ -28,10 +30,14 @@ class TorClient:
         self.run_task = asyncio.ensure_future(self._run())
 
     async def _handshake(self):
-        reader = HashReader(self._reader, 'client') # TODO: figure out where to use these
+        # TODO: figure out where to use these
+        reader = HashReader(self._reader, 'client')
         writer = HashWriter(self._writer, 'client')
         try:
-            self._version = await full_client_handshake(reader, writer, [3], ['127.0.0.1'], self.ip)
+            my_vers = [3]
+            my_ips = ['127.0.0.1']
+            self._version = await \
+                full_client_handshake(reader, writer, my_vers, my_ips, self.ip)
         except asyncio.TimeoutError as exc:
             logger.info("client timed out")
             raise
@@ -44,15 +50,18 @@ class TorClient:
             logger.info("client completed handshake")
 
     async def create_circuit(self, node_id, b_public):
-        keys = await create.create_circuit(self._reader, self._writer, self.circ_id, node_id, b_public)
+        keys = await create.create_circuit(self._reader, self._writer,
+                                           self.circ_id, node_id, b_public)
         logger.info("create_circuit exiting fine")
         logger.info(keys)
         self.circuits[self.circ_id] = [create.CircuitHop(keys)]
 
     async def extend_circuit(self, node_id, b_public, ip, port):
         node_id = bytes(bytearray.fromhex(node_id))
-        b_public= create.PublicKey(base64.b64decode(b_public))
-        keys = await create.extend_circuit(self._reader, self._writer, self.circ_id, node_id, b_public, ip, port)
+        b_public = create.PublicKey(base64.b64decode(b_public))
+        keys = await create.extend_circuit(self._reader, self._writer,
+                                           self.circ_id, node_id, b_public,
+                                           ip, port)
         logger.info("extend_circuit exiting fine")
         logger.info(keys)
         self.circuits[self.circ_id].append(create.CircuitHop(keys))
@@ -78,8 +87,8 @@ class TorClient:
         self._reader, self._writer = await asyncio.open_connection(
             self.ip, self.port, ssl=context)
 
-    
-    async def stop(self): # TODO: make this object act more like a Task (ie. have a done() method and whatever else)
+    # TODO: make this object act more like a Task (ie. done(), cancel(), etc.)
+    async def stop(self):
         if self._writer is not None:
             self._writer.close()
 

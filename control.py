@@ -5,8 +5,10 @@ from server import TorServer
 from consensus import cached_consensus, server_descriptor
 import random
 
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
 
 class ControlServerConnection:
     def __init__(self, server, reader, writer):
@@ -45,16 +47,19 @@ class ControlServerConnection:
                 ip = router_status.address
                 port = router_status.or_port
                 asyncio.ensure_future(
-                    self.tor_clients[circ_id].extend_circuit(hex_fprint, b_public, ip, port)
+                    self.tor_clients[circ_id].extend_circuit(
+                        hex_fprint, b_public, ip, port)
                 )
             elif command == b'consensus':
                 self.consensus = await cached_consensus()
-                for relay in random.sample(list(self.consensus.routers.values()), 5):
-                    logger.info("%s %s %s" % (relay.fingerprint, relay.address, relay.or_port))
+                for relay in random.sample(
+                        list(self.consensus.routers.values()), 5):
+                    logger.info("%s %s %s" %
+                                (relay.fingerprint, relay.address,
+                                 relay.or_port))
             elif command == b'server':
-                await self.add_server(
-                    int( line.split()[1] )
-                )
+                port = int(line.split()[1])
+                await self.add_server(port)
             elif command == b'list':
                 logger.info(self.tor_servers, self.tor_clients)
             elif command == b'quit':
@@ -69,7 +74,8 @@ class ControlServerConnection:
         if self.run_task:
             self.run_task.cancel()
             asyncio.wait(self.run_task)
-            logger.info('canceled run_task in ControlServerConnection: %s' % self.run_task)
+            logger.info('canceled run_task in ControlServerConnection: %s' %
+                        self.run_task)
 
         for client in self.tor_clients.values():
             await client.stop()
@@ -86,6 +92,7 @@ class ControlServerConnection:
         self.tor_servers.append(server)
         await server.start()
 
+
 class ControlServer:
     def __init__(self, port):
         self.port = port
@@ -97,7 +104,8 @@ class ControlServer:
 
     async def start(self):
         try:
-            self._server = await asyncio.start_server(self._accept, '127.0.0.1', self.port)
+            self._server = await \
+                asyncio.start_server(self._accept, '127.0.0.1', self.port)
         except asyncio.CancelledError:
             raise
         except Exception as e:

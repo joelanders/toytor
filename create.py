@@ -1,5 +1,4 @@
-import slownacl_curve25519
-curve25519mod = slownacl_curve25519
+import slownacl_curve25519 as curve25519mod
 import hashlib
 import hmac
 import sys
@@ -13,30 +12,30 @@ import hashlib
 from Crypto.Cipher import AES
 from Crypto.Util import Counter
 
-### this is largely taken verbatim from tor's src/test/ntor_ref.py
-### that file (and what I've copied) is Copyright 2012-2015, The Tor Project, Inc
-### under the 3-clause BSD License:
+# this is largely taken verbatim from tor's src/test/ntor_ref.py
+# that file (and what I've copied) is Copyright 2012-2015, The Tor Project, Inc
+# under the 3-clause BSD License:
 
 # Copyright (c) 2001-2004, Roger Dingledine
 # Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson
 # Copyright (c) 2007-2016, The Tor Project, Inc.
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
 # met:
-# 
+#
 #     * Redistributions of source code must retain the above copyright
 # notice, this list of conditions and the following disclaimer.
-# 
+#
 #     * Redistributions in binary form must reproduce the above
 # copyright notice, this list of conditions and the following disclaimer
 # in the documentation and/or other materials provided with the
 # distribution.
-# 
+#
 #     * Neither the names of the copyright owners nor the names of its
 # contributors may be used to endorse or promote products derived from
 # this software without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -49,20 +48,20 @@ from Crypto.Util import Counter
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# **********************************************************************
-# Helpers and constants
 
-def HMAC(key,msg):
+def HMAC(key, msg):
     "Return the HMAC-SHA256 of 'msg' using the key 'key'."
     H = hmac.new(key, b"", hashlib.sha256)
     H.update(msg)
     return H.digest()
 
-def H(msg,tweak):
+
+def H(msg, tweak):
     """Return the hash of 'msg' using tweak 'tweak'.  (In this version of ntor,
        the tweaked hash is just HMAC with the tweak as the key.)"""
     return HMAC(key=tweak,
                 msg=msg)
+
 
 def keyid(k):
     """Return the 32-byte key ID of a public key 'k'. (Since we're
@@ -70,21 +69,28 @@ def keyid(k):
     """
     return k.serialize()
 
+
 NODE_ID_LENGTH = 20
 KEYID_LENGTH = 32
 G_LENGTH = 32
 H_LENGTH = 32
 
+
 PROTOID = b"ntor-curve25519-sha256-1"
 M_EXPAND = PROTOID + b":key_expand"
-T_MAC    = PROTOID + b":mac"
-T_KEY    = PROTOID + b":key_extract"
+T_MAC = PROTOID + b":mac"
+T_KEY = PROTOID + b":key_extract"
 T_VERIFY = PROTOID + b":verify"
 
+
 def H_mac(msg): return H(msg, tweak=T_MAC)
+
+
 def H_verify(msg): return H(msg, tweak=T_VERIFY)
 
+
 PublicKey = curve25519mod.Public
+
 
 class PrivateKey(curve25519mod.Private):
     """As curve25519mod.Private, but doesn't regenerate its public key
@@ -100,16 +106,15 @@ class PrivateKey(curve25519mod.Private):
 
         return self._memo_public
 
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
 if sys.version < '3':
-   def int2byte(i):
-      return chr(i)
+    def int2byte(i):
+        return chr(i)
 else:
-   def int2byte(i):
-      return bytes([i])
+    def int2byte(i):
+        return bytes([i])
 
-def  kdf_rfc5869(key, salt, info, n):
+
+def kdf_rfc5869(key, salt, info, n):
 
     prk = HMAC(key=salt, msg=key)
 
@@ -123,10 +128,10 @@ def  kdf_rfc5869(key, salt, info, n):
         i = i + 1
     return out[:n]
 
+
 def kdf_ntor(key, n):
     return kdf_rfc5869(key, T_KEY, M_EXPAND, n)
 
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 def client_part1(node_id, pubkey_B):
     """Initial handshake, client side.
@@ -154,18 +159,21 @@ def client_part1(node_id, pubkey_B):
     message = node_id + key_id + pubkey_X
 
     assert len(message) == NODE_ID_LENGTH + H_LENGTH + H_LENGTH
-    return seckey_x , message
+    return seckey_x, message
+
 
 def hash_nil(x):
     """Identity function: if we don't pass a hash function that does nothing,
        the curve25519 python lib will try to sha256 it for us."""
     return x
 
+
 def bad_result(r):
     """Helper: given a result of multiplying a public key by a private key,
        return True iff one of the inputs was broken"""
     assert len(r) == 32
     return r == '\x00'*32
+
 
 def server(seckey_b, my_node_id, message, keyBytes=72):
     """Handshake step 2, server side.
@@ -240,6 +248,7 @@ def server(seckey_b, my_node_id, message, keyBytes=72):
 
     return keys, msg
 
+
 def client_part2(seckey_x, msg, node_id, pubkey_B, keyBytes=72):
     """Handshake step 3: client side again.
 
@@ -274,7 +283,6 @@ def client_part2(seckey_x, msg, node_id, pubkey_B, keyBytes=72):
     yx = seckey_x.get_shared_key(pubkey_Y, hash_nil)
     bx = seckey_x.get_shared_key(pubkey_B, hash_nil)
 
-
     # secret_input = EXP(Y,x) | EXP(B,x) | ID | B | X | Y | PROTOID
     secret_input = (yx + bx + node_id +
                     pubkey_B.serialize() +
@@ -300,18 +308,21 @@ def client_part2(seckey_x, msg, node_id, pubkey_B, keyBytes=72):
 
     return kdf_ntor(secret_input, keyBytes)
 
+
 # sends CREATE2, awaits CREATED2, returns keys
 async def create_circuit(reader, writer, circid, node_id, pubkey_B):
     assert len(node_id) == 20
     assert len(pubkey_B.serialize()) == 32
     x, create_payload = client_part1(node_id, pubkey_B)
-    writer.write( bytes(torpylle.Cell(Command="CREATE2",
-                                      CircID=circid,
-                                      Htype="ntor",
-                                      Hdata=create_payload)) )
+    writer.write(bytes(torpylle.Cell(Command="CREATE2",
+                                     CircID=circid,
+                                     Htype="ntor",
+                                     Hdata=create_payload)))
     created_cell = await asyncio.wait_for(read_cell(reader, writer), timeout=1)
-    created_hdata = created_cell.Hdata[:64] # Hdata should always have len=64 anyway
+    # Hdata should always have len=64 anyway
+    created_hdata = created_cell.Hdata[:64]
     return client_part2(x, created_hdata, node_id, pubkey_B)
+
 
 # takes hdata from create cell, writes CREATED2, returns keys
 def handle_create(reader, writer, node_id, seckey_b, create_cell):
@@ -319,27 +330,31 @@ def handle_create(reader, writer, node_id, seckey_b, create_cell):
     assert len(seckey_b.get_public().serialize()) == 32
     create_hdata = create_cell.Hdata[:84]
     skeys, created_hdata = server(seckey_b, node_id, create_hdata)
-    writer.write( bytes(torpylle.Cell(Command="CREATED2",
-                                      Hdata=created_hdata)) )
+    writer.write(bytes(torpylle.Cell(Command="CREATED2",
+                                     Hdata=created_hdata)))
     return skeys
+
 
 async def extend_circuit(reader, writer, circid, node_id, pubkey_B, ip, port):
     assert len(node_id) == 20
     assert len(pubkey_B.serialize()) == 32
     x, extend_payload = client_part1(node_id, pubkey_B)
-    ip_bytes = IPv4Address(ip).packed # TODO: handle exception
+    ip_bytes = IPv4Address(ip).packed  # TODO: handle exception
     port_bytes = struct.pack('>H', port)
     lspec = ip_bytes + port_bytes
     assert len(lspec) == 6
-    writer.write( bytes(torpylle.CellRelayExtend2(
-                                      RelayCommand="RELAY_EXTEND2",
-                                      CircID=circid,
-                                      StreamID=0,
-                                      LSpec=lspec,
-                                      HData=extend_payload)) )
-    extended_cell = await asyncio.wait_for(read_cell(reader, writer), timeout=1)
-    extended_hdata = extended_cell.Hdata[:64] # Hdata should always have len=64 anyway
+    writer.write(bytes(torpylle.CellRelayExtend2(
+                       RelayCommand="RELAY_EXTEND2",
+                       CircID=circid,
+                       StreamID=0,
+                       LSpec=lspec,
+                       HData=extend_payload)))
+    extended_cell = await \
+        asyncio.wait_for(read_cell(reader, writer), timeout=1)
+    # Hdata should always have len=64 anyway
+    extended_hdata = extended_cell.Hdata[:64]
     return client_part2(x, extended_hdata, node_id, pubkey_B)
+
 
 # def handle_extend(reader, writer, node_id, seckey_b, create_cell):
 #     assert len(node_id) == 20
@@ -349,6 +364,7 @@ async def extend_circuit(reader, writer, circid, node_id, pubkey_B, ip, port):
 #     writer.write( bytes(torpylle.Cell(Command="CREATED2",
 #                                       Hdata=created_hdata)) )
 #     return skeys
+
 
 def encrypt_relay_cell(circuit_hops, relay_cell, direction):
     relay_cell.Digest = b'\x00' * 4
@@ -362,6 +378,7 @@ def encrypt_relay_cell(circuit_hops, relay_cell, direction):
             payload = hop.cipher_bw.encrypt(payload)
     return torpylle.Cell(bytes(relay_cell)[:3] + payload)
 
+
 def decrypt_relay_cell(circuit_hops, relay_cell, direction):
     payload = bytes(relay_cell)[3:]
     for hop in circuit_hops:
@@ -370,6 +387,7 @@ def decrypt_relay_cell(circuit_hops, relay_cell, direction):
         else:
             payload = hop.cipher_bw.decrypt(payload)
     return torpylle.Cell(bytes(relay_cell)[:3] + payload)
+
 
 class CircuitHop:
     def __init__(self, key_material):
