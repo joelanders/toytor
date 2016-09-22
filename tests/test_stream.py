@@ -1,7 +1,7 @@
 import pytest
-from ..stream import *
-from ..dummytransport import dummy_transport
-from ..common import read_cell
+from toytor.stream import *
+from toytor.dummytransport import dummy_transport
+from toytor.common import read_cell
 # RELAY_BEGIN and the response is RELAY_END or RELAY_CONNECTED
 
 

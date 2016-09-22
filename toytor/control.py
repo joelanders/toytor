@@ -1,8 +1,8 @@
 import asyncio
 import logging
-from client import TorClient
-from server import TorServer
-from consensus import cached_consensus, server_descriptor
+from toytor.client import TorClient
+from toytor.server import TorServer
+from toytor.consensus import cached_consensus, server_descriptor
 import random
 
 

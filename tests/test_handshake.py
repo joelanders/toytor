@@ -1,9 +1,9 @@
-from ..handshake import *
-from .. import torpylle as torpylle
+from toytor.handshake import *
+import toytor.torpylle as torpylle
 import pytest
 import time
-from ..dummytransport import dummy_transport
-from ..common import cell_from_bytes
+from toytor.dummytransport import dummy_transport
+from toytor.common import cell_from_bytes
 
 
 class TestNegotiateVersion:

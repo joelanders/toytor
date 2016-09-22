@@ -1,5 +1,5 @@
-from torpylle import CellRelay, CELL_COMMANDS, CELL_RELAY_COMMANDS
-from common import read_cell
+from toytor.torpylle import CellRelay, CELL_COMMANDS, CELL_RELAY_COMMANDS
+from toytor.common import read_cell
 from ipaddress import IPv4Address
 import asyncio
 import logging

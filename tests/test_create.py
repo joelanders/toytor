@@ -1,8 +1,8 @@
-from ..create import *
-from ..dummytransport import dummy_transport
-from ..common import cell_from_bytes
-from ..common import read_cell
-from .. import torpylle as torpylle
+from toytor.create import *
+from toytor.dummytransport import dummy_transport
+from toytor.common import cell_from_bytes
+from toytor.common import read_cell
+import toytor.torpylle as torpylle
 import pytest
 import asyncio
 import sys

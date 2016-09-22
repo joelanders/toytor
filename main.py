@@ -1,11 +1,10 @@
 #!/usr/bin/env python3.5
 import asyncio
 import string
-import torpylle
 import signal
 import functools
 from aiomanhole import start_manhole
-from control import ControlServer
+from toytor.control import ControlServer
 import logging
 
 

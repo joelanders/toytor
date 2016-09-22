@@ -1,7 +1,7 @@
-from common import read_cell
-from certs import verify_cert
+from toytor.common import read_cell
+from toytor.certs import verify_cert
 from OpenSSL import crypto, SSL
-import torpylle
+import toytor.torpylle as torpylle
 import asyncio
 import time
 

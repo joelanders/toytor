@@ -1,4 +1,4 @@
-import torpylle
+from toytor.torpylle import Cell
 import asyncio
 import random
 import struct
@@ -28,4 +28,4 @@ async def read_cell(reader, writer):
 
 
 def cell_from_bytes(buffie):
-    return torpylle.Cell(buffie)
+    return Cell(buffie)

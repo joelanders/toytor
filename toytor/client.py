@@ -1,12 +1,11 @@
-from handshake import ProtocolViolation, IncompatibleVersions
-from handshake import full_client_handshake
-from hashtransport import HashReader, HashWriter
-from common import read_cell
+from toytor.handshake import ProtocolViolation, IncompatibleVersions
+from toytor.handshake import full_client_handshake
+from toytor.hashtransport import HashReader, HashWriter
+from toytor.common import read_cell
 import ssl
 import asyncio
-import torpylle
-import common
-import create
+import toytor.torpylle as torpylle
+import toytor.create as create
 import traceback
 import base64
 import logging

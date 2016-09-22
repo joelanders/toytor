@@ -1,10 +1,10 @@
-import slownacl_curve25519 as curve25519mod
+import toytor.slownacl_curve25519 as curve25519mod
 import hashlib
 import hmac
 import sys
-import torpylle
+import toytor.torpylle as torpylle
 import asyncio
-from common import read_cell
+from toytor.common import read_cell
 from ipaddress import IPv4Address
 import struct
 

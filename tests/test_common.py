@@ -1,8 +1,7 @@
-from ..common import *
-from .. import torpylle
+from toytor.common import *
 import pytest
 import asyncio
-from ..dummytransport import dummy_transport
+from toytor.dummytransport import dummy_transport
 
 
 INCOMPLETE_HEADER = b'\x01\x02\x03\x04'
