@@ -139,11 +139,8 @@ class TestEncryptRelayCell:
                       LSpec=b'\x7f\x00\x00\x01\x23\x8b',  # 127.0.0.1:9099
                       HData=b'n'*20 + b'k'*32 + b'c'*32)
 
-        print(repr(plaintext))
         encrypted = encrypt_relay_cell([op_state], plaintext, 'fw')
-        print(repr(encrypted))
         decrypted = decrypt_relay_cell([or_state], encrypted, 'fw')
-        print(repr(decrypted))
         assert bytes(decrypted) == bytes(plaintext)
 
     def test_two_hop(self):
@@ -162,12 +159,9 @@ class TestEncryptRelayCell:
                       LSpec=b'\x7f\x00\x00\x01\x23\x8b',  # 127.0.0.1:9099
                       HData=b'n'*20 + b'k'*32 + b'c'*32)
 
-        print(repr(plaintext))
         encrypted = encrypt_relay_cell([op_state1, op_state2], plaintext, 'fw')
-        print(repr(encrypted))
         # decrypted = \
         #     decrypt_relay_cell([or_state1, or_state2], encrypted, 'fw')
         decrypted1 = decrypt_relay_cell([or_state2], encrypted, 'fw')
         decrypted = decrypt_relay_cell([or_state1], decrypted1, 'fw')
-        print(repr(decrypted))
         assert bytes(decrypted) == bytes(plaintext)
