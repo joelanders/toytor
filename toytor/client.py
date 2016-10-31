@@ -78,6 +78,18 @@ class TorClient:
         logger.info(keys)
         self.circuits[self.circ_id]['hops'].append(create.CircuitHop(keys))
 
+    async def resolve_host(self, host_str):
+        if len(host_str) < 1:
+            return
+        if host_str[-1] != "\x00":
+            host_str += "\x00"
+        await self.cell_queuer.put(torpylle.CellRelay(
+                CircID=self.circ_id,
+                RelayCommand="RELAY_RESOLVE",
+                StreamID=1990, # TODO: should pick properly
+                Data=host_str))
+        logger.info('sent resolve cell')
+
     async def _run(self):
         await self._connect()
         logger.info('client connected')

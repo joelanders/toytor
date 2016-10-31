@@ -50,6 +50,12 @@ class ControlServerConnection:
                     self.tor_clients[circ_id].extend_circuit(
                         hex_fprint, b_public, ip, port)
                 )
+            elif command == b'resolve':
+                circ_id = int(line.split()[1])
+                host_str = line.split()[2].decode()
+                asyncio.ensure_future(
+                        self.tor_clients[circ_id].resolve_host(host_str)
+                )
             elif command == b'consensus':
                 self.consensus = await cached_consensus()
                 for relay in random.sample(
