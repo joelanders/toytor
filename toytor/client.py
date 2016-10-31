@@ -2,6 +2,7 @@ from toytor.handshake import ProtocolViolation, IncompatibleVersions
 from toytor.handshake import full_client_handshake
 from toytor.hashtransport import HashReader, HashWriter
 from toytor.common import read_cell
+from toytor.cellqueuer import CellQueuer
 import ssl
 import asyncio
 import toytor.torpylle as torpylle
@@ -26,6 +27,8 @@ class TorClient:
         self._writer = None
         self._version = None
         self.circuits = {}
+        self.cell_queues = {}
+        self.cell_queuer = None
         self.run_task = asyncio.ensure_future(self._run())
 
     async def _handshake(self):
@@ -48,32 +51,45 @@ class TorClient:
         else:
             logger.info("client completed handshake")
 
+    # TODO: lock so we can only have one pending create per circuit
     async def create_circuit(self, node_id, b_public):
-        keys = await create.create_circuit(self._reader, self._writer,
+        if self.circ_id in self.cell_queues:
+            logger.info('create_circuit getting called twice?')
+            raise Exception('failed to create_circuit')
+        reader_q = asyncio.Queue()
+        self.cell_queues[self.circ_id] = reader_q
+        logger.info('cell_queues: %s' % self.cell_queues)
+        keys = await create.create_circuit(reader_q, self._writer,
                                            self.circ_id, node_id, b_public)
         logger.info("create_circuit exiting fine")
         logger.info(keys)
-        self.circuits[self.circ_id] = [create.CircuitHop(keys)]
+        # TODO: this role: client stuff is janky
+        self.circuits[self.circ_id] = {'role': 'client', 'hops': [create.CircuitHop(keys)]}
 
+    # TODO: lock so we can only have one pending extend per circuit
     async def extend_circuit(self, node_id, b_public, ip, port):
         node_id = bytes(bytearray.fromhex(node_id))
         b_public = create.PublicKey(base64.b64decode(b_public))
-        keys = await create.extend_circuit(self._reader, self._writer,
-                                           self.circ_id, node_id, b_public,
-                                           ip, port)
+        logger.info('cell_queues: %s' % self.cell_queues)
+        keys = await create.extend_circuit(self.cell_queues[self.circ_id],
+                                           self.cell_queuer, self.circ_id,
+                                           node_id, b_public, ip, port)
         logger.info("extend_circuit exiting fine")
         logger.info(keys)
-        self.circuits[self.circ_id].append(create.CircuitHop(keys))
+        self.circuits[self.circ_id]['hops'].append(create.CircuitHop(keys))
 
     async def _run(self):
         await self._connect()
         logger.info('client connected')
         await self._handshake()
         logger.info('client handshaked')
+        self.cell_queuer = CellQueuer(self._reader, self._writer, self.cell_queues, self.circuits)
+        self.cell_queues[0] = asyncio.Queue()
+        logger.info('client started CellQueuer')
         await self.create_circuit(self.node_id, self.b_public)
         logger.info('client circuit created')
         while True:
-            cell = await read_cell(self._reader, self._writer)
+            cell = await self.cell_queues[0].get()
         self._writer.close()
         logger.info('Client done')
 

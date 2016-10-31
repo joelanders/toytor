@@ -57,7 +57,7 @@ class TorServerConnection:
         keys = create.handle_create(self._reader, self._writer,
                                     self.fingerprint, seckey_b, create_cell)
         logger.info("server handle_create finished")
-        logger.info(keys)
+        logger.info(keys) # TODO: store CircuitHop with these keys
         while True:
             cell = await read_cell(self._reader, self._writer)
 

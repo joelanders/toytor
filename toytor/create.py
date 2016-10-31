@@ -4,9 +4,13 @@ import hmac
 import sys
 import toytor.torpylle as torpylle
 import asyncio
-from toytor.common import read_cell
 from ipaddress import IPv4Address
 import struct
+import logging
+import binascii
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 import hashlib
 from Crypto.Cipher import AES
@@ -304,13 +308,14 @@ def client_part2(seckey_x, msg, node_id, pubkey_B, keyBytes=72):
     badness |= bad_result(yx) + bad_result(bx)
 
     if badness:
+        logger.info("&&&&&& BADNESS &&&&&&")
         return None
 
     return kdf_ntor(secret_input, keyBytes)
 
 
 # sends CREATE2, awaits CREATED2, returns keys
-async def create_circuit(reader, writer, circid, node_id, pubkey_B):
+async def create_circuit(reader_q, writer, circid, node_id, pubkey_B):
     assert len(node_id) == 20
     assert len(pubkey_B.serialize()) == 32
     x, create_payload = client_part1(node_id, pubkey_B)
@@ -318,10 +323,20 @@ async def create_circuit(reader, writer, circid, node_id, pubkey_B):
                                      CircID=circid,
                                      Htype="ntor",
                                      Hdata=create_payload)))
-    created_cell = await asyncio.wait_for(read_cell(reader, writer), timeout=1)
+    created_cell = await asyncio.wait_for(reader_q.get(), timeout=4)
     # Hdata should always have len=64 anyway
     created_hdata = created_cell.Hdata[:64]
-    return client_part2(x, created_hdata, node_id, pubkey_B)
+    keys = client_part2(x, created_hdata, node_id, pubkey_B)
+    logger.info('hdata:  %s' % hex(struct.unpack('<L', created_hdata[:4])[0]))
+    logger.info('hdata:  %s' % hex(struct.unpack('<L', created_hdata[4:8])[0]))
+    logger.info('hdata:  %s' % hex(struct.unpack('<L', created_hdata[8:12])[0]))
+    logger.info('hdata:  %s' % hex(struct.unpack('<L', created_hdata[12:16])[0]))
+
+    logger.info('digest forward:  %s' % hex(struct.unpack('<L', keys[:4])[0]))
+    logger.info('digest backward: %s' % hex(struct.unpack('<L', keys[20:24])[0]))
+    logger.info('keys forward:    %s' % hex(struct.unpack('<L', keys[40:44])[0]))
+    logger.info('keys backward:   %s' % hex(struct.unpack('<L', keys[56:60])[0]))
+    return keys
 
 
 # takes hdata from create cell, writes CREATED2, returns keys
@@ -331,11 +346,12 @@ def handle_create(reader, writer, node_id, seckey_b, create_cell):
     create_hdata = create_cell.Hdata[:84]
     skeys, created_hdata = server(seckey_b, node_id, create_hdata)
     writer.write(bytes(torpylle.Cell(Command="CREATED2",
-                                     Hdata=created_hdata)))
+                                     Hdata=created_hdata,
+                                     CircID=create_cell.CircID)))
     return skeys
 
 
-async def extend_circuit(reader, writer, circid, node_id, pubkey_B, ip, port):
+async def extend_circuit(reader_q, cell_queuer, circid, node_id, pubkey_B, ip, port):
     assert len(node_id) == 20
     assert len(pubkey_B.serialize()) == 32
     x, extend_payload = client_part1(node_id, pubkey_B)
@@ -343,17 +359,23 @@ async def extend_circuit(reader, writer, circid, node_id, pubkey_B, ip, port):
     port_bytes = struct.pack('>H', port)
     lspec = ip_bytes + port_bytes
     assert len(lspec) == 6
-    writer.write(bytes(torpylle.CellRelayExtend2(
-                       RelayCommand="RELAY_EXTEND2",
-                       CircID=circid,
-                       StreamID=0,
-                       LSpec=lspec,
-                       HData=extend_payload)))
+    await cell_queuer.put(torpylle.CellRelayExtend2(
+                    RelayCommand="RELAY_EXTEND2",
+                    CircID=circid,
+                    StreamID=0,
+                    LSpec0=lspec,
+                    LSpec1=node_id,
+                    HData=extend_payload))
     extended_cell = await \
-        asyncio.wait_for(read_cell(reader, writer), timeout=1)
+        asyncio.wait_for(reader_q.get(), timeout=4)
     # Hdata should always have len=64 anyway
     extended_hdata = extended_cell.Hdata[:64]
-    return client_part2(x, extended_hdata, node_id, pubkey_B)
+    keys = client_part2(x, extended_hdata, node_id, pubkey_B)
+    logger.info('digest forward:  %s' % hex(struct.unpack('<L', keys[:4])[0]))
+    logger.info('digest backward: %s' % hex(struct.unpack('<L', keys[20:24])[0]))
+    logger.info('keys forward:    %s' % hex(struct.unpack('<L', keys[40:44])[0]))
+    logger.info('keys backward:   %s' % hex(struct.unpack('<L', keys[56:60])[0]))
+    return keys
 
 
 # def handle_extend(reader, writer, node_id, seckey_b, create_cell):
@@ -367,26 +389,69 @@ async def extend_circuit(reader, writer, circid, node_id, pubkey_B, ip, port):
 
 
 def encrypt_relay_cell(circuit_hops, relay_cell, direction):
+    if direction not in ['fw', 'bw']:
+        raise Exception('bad direction in encrypt_relay_cell')
+    logger.info('encrypting in direction %s' % direction)
     relay_cell.Digest = b'\x00' * 4
-    circuit_hops[-1].hash_fw.update(bytes(relay_cell)[3:])
-    relay_cell.Digest = circuit_hops[-1].hash_fw.digest()[:4]
+    if direction == 'fw':
+        logger.info('current digest %s' % circuit_hops[-1].hash_fw.hexdigest())
+        circuit_hops[-1].hash_fw.update(bytes(relay_cell)[3:])
+        relay_cell.Digest = circuit_hops[-1].hash_fw.digest()[:4]
+    else:
+        logger.info('current digest %s' % circuit_hops[-1].hash_bw.hexdigest())
+        circuit_hops[-1].hash_bw.update(bytes(relay_cell)[3:])
+        relay_cell.Digest = circuit_hops[-1].hash_bw.digest()[:4]
+    logger.info('sent digest %s' % hex(struct.unpack('<L', relay_cell.Digest)[0]))
+    logger.info('cell %s' % repr(relay_cell))
     payload = bytes(relay_cell)[3:]
     for hop in reversed(circuit_hops):
         if direction == 'fw':
             payload = hop.cipher_fw.encrypt(payload)
         else:
             payload = hop.cipher_bw.encrypt(payload)
-    return torpylle.Cell(bytes(relay_cell)[:3] + payload)
+    cell = torpylle.Cell(bytes(relay_cell)[:3] + payload)
+    return cell
 
 
+# TODO: I may have some remaining incorrect assumptions about
+# this thing working for start, middle, and end relays
 def decrypt_relay_cell(circuit_hops, relay_cell, direction):
+    logger.info('decrypt_relay_cell: %s' % repr(relay_cell))
+    if direction not in ['fw', 'bw']:
+        raise Exception('bad direction in decrypt_relay_cell')
     payload = bytes(relay_cell)[3:]
     for hop in circuit_hops:
         if direction == 'fw':
             payload = hop.cipher_fw.decrypt(payload)
         else:
             payload = hop.cipher_bw.decrypt(payload)
-    return torpylle.Cell(bytes(relay_cell)[:3] + payload)
+    pt_bytes = bytes(relay_cell)[:3] + payload
+    logger.info('pt_bytes: %s' % pt_bytes)
+    pt_cell = torpylle.Cell(pt_bytes)
+    pt_copy = torpylle.Cell(pt_bytes) # TODO: this is nasty
+    logger.info('unencr: %s' % repr(pt_cell))
+    if isinstance(pt_cell, torpylle.CellRelayEncrypted):
+        logger.info('not recognized, so returning')
+        return pt_cell # still encrypted, not destined here
+    their_digest = pt_copy.Digest
+    pt_copy.Digest = b'\x00\x00\x00\x00'
+    old_state = None
+    our_digest = None
+    if direction == 'fw':
+        old_state = circuit_hops[-1].hash_fw.digest()
+        logger.info('our old digest: %s' % old_state)
+        circuit_hops[-1].hash_fw.update(bytes(pt_copy)[3:])
+        our_digest = circuit_hops[-1].hash_fw.digest()
+    else:
+        old_state = circuit_hops[-1].hash_bw.digest()
+        logger.info('our old digest: %s' % old_state)
+        circuit_hops[-1].hash_bw.update(bytes(pt_copy)[3:])
+        our_digest = circuit_hops[-1].hash_bw.digest()
+    # TODO: not done, need to revert state if digests don't match                   <==========================!!!
+    logger.info('our digest: %s their digest: %s' % (our_digest, their_digest))
+    if our_digest[:4] != their_digest:
+        raise Exception('no match')
+    return pt_cell
 
 
 class CircuitHop:
@@ -398,5 +463,7 @@ class CircuitHop:
         kb = key_material[56:72]
         self.hash_fw = hashlib.sha1(df)
         self.hash_bw = hashlib.sha1(db)
-        self.cipher_fw = AES.new(kf, AES.MODE_CTR, counter=Counter.new(128))
-        self.cipher_bw = AES.new(kb, AES.MODE_CTR, counter=Counter.new(128))
+        logger.info('000000 hash_fw: %s' % hex(struct.unpack('<L', self.hash_fw.digest()[:4])[0]))
+        logger.info('000000 hash_bw: %s' % hex(struct.unpack('<L', self.hash_bw.digest()[:4])[0]))
+        self.cipher_fw = AES.new(kf, AES.MODE_CTR, counter=Counter.new(128, initial_value=0))
+        self.cipher_bw = AES.new(kb, AES.MODE_CTR, counter=Counter.new(128, initial_value=0))

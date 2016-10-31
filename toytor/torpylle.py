@@ -392,29 +392,33 @@ class CellRelayResolved(Cell):
         StrFixedLenField("Padding", "", length_from=lambda x: CELL_LEN - 18 - len(x.Address))
         ]
 
-# TODO: i'm only allowing a single ip4 link specifier for simplicity now (laziness)
+# TODO: i'm hardcoding an ipv4 and a legacy link specifier pair for now
+# TODO: hardcoding RelayEarly for now
 class CellRelayExtend2(Cell):
     name = "Tor Extend2 Cell"
     fields_desc = [
         ShortField('CircID', 0),
-        ByteEnumField('Command', 3, CELL_COMMANDS),
+        ByteEnumField('Command', 9, CELL_COMMANDS),
         ByteEnumField('RelayCommand', 14, CELL_RELAY_COMMANDS),
         ShortField('Recognized', 0),
         ShortField('StreamID', 0),
         StrFixedLenField('Digest', '', 4),
-        ShortField('Length', 97),
+        ShortField('Length', 119),
         #FieldLenField("Length", None, "Data", fmt=">H"),
         #StrLenField("Data", "", length_from=lambda x: x.Length),
         #FieldLenField("Nspec", None, count_of="Certificates",
         #              fmt="B"),
-        ByteField('Nspec', 1),
-        ByteField('LSType', 0), # 4-byte ipv4 + 2-byte port
-        ByteField('LSLen', 6),
-        StrFixedLenField("LSpec", None, 6),
+        ByteField('Nspec', 2),
+        ByteField('LSType0', 0), # 4-byte ipv4 + 2-byte port
+        ByteField('LSLen0', 6),
+        StrFixedLenField("LSpec0", None, 6),
+        ByteField('LSType1', 2), # 20-byte sha1 id fingerprint
+        ByteField('LSLen1', 20),
+        StrFixedLenField("LSpec1", None, 20),
         ShortEnumField('Htype', 0x02, OR_HTYPES),
         FieldLenField("Hlen", None, "HData", fmt=">H"),
         StrLenField("HData", "", length_from=lambda x: x.Hlen),
-        StrFixedLenField("Padding", "", 512 - 97 - 14)
+        StrFixedLenField("Padding", "", 512 - 119 - 14)
         ]
 
 class CellRelayExtended2(Cell):
@@ -426,13 +430,14 @@ class CellRelayExtended2(Cell):
         ShortField('Recognized', 0),
         ShortField('StreamID', 0),
         StrFixedLenField('Digest', '', 4),
+        ShortField('Length', 66), # TODO: evil hardcoding
         #FieldLenField("Length", None, "Data", fmt=">H"),
         #StrLenField("Data", "", length_from=lambda x: x.Length),
         #FieldLenField("Nspec", None, count_of="Certificates",
         #              fmt="B"),
-        FieldLenField("Hlen", None, "Hdata", fmt=">H"),
-        StrLenField("Hdata", "", length_from=lambda x: x.Hlen),
-        StrFixedLenField("Padding", "", length_from=lambda x: CELL_LEN - 14 - len(x.Data))
+        ShortField("Hlen", 64), # TODO: lazy hardcoding
+        StrFixedLenField("Hdata", None, 64), # TODO: lazy hardcoding
+        StrFixedLenField("Padding", "", length_from=lambda x: CELL_LEN - 16 - 64)
         ]
 
 CELL_RELAYEND_REASONS = {

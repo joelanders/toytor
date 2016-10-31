@@ -2,10 +2,19 @@ from toytor.create import *
 from toytor.dummytransport import dummy_transport
 from toytor.common import cell_from_bytes
 from toytor.common import read_cell
+from toytor.cellqueuer import CellQueuer
 import toytor.torpylle as torpylle
 import pytest
 import asyncio
 import sys
+import logging
+
+
+logging.basicConfig(
+    format='%(levelname)s %(asctime)s %(name)-23s %(message)s',
+    datefmt='%H:%M:%S')
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class TestNtor:
@@ -77,8 +86,11 @@ class TestAsyncCreate:
         server_key = PrivateKey()
         pubkey_B = server_key.get_public()
 
+        queues = {circid: asyncio.Queue()}
+        queuer = CellQueuer(c_reader, c_writer, queues, {})
+
         client_future = asyncio.ensure_future(
-            create_circuit(c_reader, c_writer, circid, node_id, pubkey_B)
+            create_circuit(queues[circid], c_writer, circid, node_id, pubkey_B)
         )
         create_cell = await read_cell(s_reader, None)
         skeys = \
@@ -87,6 +99,7 @@ class TestAsyncCreate:
 
         assert len(skeys) == 72
         assert skeys == ckeys
+        await queuer.stop()
 
 
 class TestExtend2:
@@ -99,7 +112,8 @@ class TestExtend2:
                       CircID=69,
                       RelayCommand='RELAY_EXTEND2',
                       StreamID=79,
-                      LSpec=b'\x7f\x00\x00\x01\x23\x8b',  # 127.0.0.1:9099
+                      LSpec0=b'\x7f\x00\x00\x01\x23\x8b',  # 127.0.0.1:9099
+                      LSpec1=node_id,
                       HData=b'n'*20 + b'k'*32 + b'c'*32)
         assert len(c) == 512
 
@@ -111,16 +125,19 @@ class TestExtend2:
         bites += b'\x06\x09'          # streamid
         bites += b'\x06\x09\x00\x00'  # digest
         bites += b'\x00\x61'  # length
-        bites += b'\x01'      # num specs
+        bites += b'\x02'      # num specs
         bites += b'\x00'      # link spec type
         bites += b'\x06'      # link spec length
         bites += b'\x7f\x00\x00\x01\x23\x8b'  # 127.0.0.1:9099
+        bites += b'\x00'      # link spec type
+        bites += b'\x14'      # link spec length
+        bites += b'\x69'*20   # 127.0.0.1:9099
         bites += b'\x00\x02'  # Htype = ntor
         bites += b'\x00\x54'  # Hlen = 84 decimal
         bites += b'n'*20      # NodeId
         bites += b'k'*32      # KeyId
         bites += b'c'*32      # ClientPK
-        bites += b'p'*421     # Padding
+        bites += b'p'*399     # Padding
         c = cell_from_bytes(bites)
         assert cell_from_bytes(bites).Command == 3
         assert cell_from_bytes(bites).HData == b'n'*20 + b'k'*32 + b'c'*32
@@ -136,12 +153,14 @@ class TestEncryptRelayCell:
                       CircID=69,
                       RelayCommand='RELAY_EXTEND2',
                       StreamID=79,
-                      LSpec=b'\x7f\x00\x00\x01\x23\x8b',  # 127.0.0.1:9099
+                      LSpec0=b'\x7f\x00\x00\x01\x23\x8b',  # 127.0.0.1:9099
+                      LSpec1=b'iToldYouAboutStairs',
                       HData=b'n'*20 + b'k'*32 + b'c'*32)
 
         encrypted = encrypt_relay_cell([op_state], plaintext, 'fw')
         decrypted = decrypt_relay_cell([or_state], encrypted, 'fw')
         assert bytes(decrypted) == bytes(plaintext)
+        assert decrypted.Digest == op_state.hash_fw.digest()[:4]
 
     def test_two_hop(self):
         shared_keys1 = b'a'*20 + b'b'*20 + b'c'*16 + b'd'*16
@@ -156,12 +175,13 @@ class TestEncryptRelayCell:
                       CircID=69,
                       RelayCommand='RELAY_EXTEND2',
                       StreamID=79,
-                      LSpec=b'\x7f\x00\x00\x01\x23\x8b',  # 127.0.0.1:9099
+                      LSpec0=b'\x7f\x00\x00\x01\x23\x8b',  # 127.0.0.1:9099
+                      LSpec1=b'iToldYouAboutStairs',
                       HData=b'n'*20 + b'k'*32 + b'c'*32)
 
         encrypted = encrypt_relay_cell([op_state1, op_state2], plaintext, 'fw')
         # decrypted = \
         #     decrypt_relay_cell([or_state1, or_state2], encrypted, 'fw')
-        decrypted1 = decrypt_relay_cell([or_state2], encrypted, 'fw')
-        decrypted = decrypt_relay_cell([or_state1], decrypted1, 'fw')
+        decrypted1 = decrypt_relay_cell([or_state1], encrypted, 'fw')
+        decrypted = decrypt_relay_cell([or_state2], decrypted1, 'fw')
         assert bytes(decrypted) == bytes(plaintext)
