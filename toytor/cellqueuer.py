@@ -9,10 +9,11 @@ logger.setLevel(logging.DEBUG)
 
 
 class CellQueuer:
-    def __init__(self, reader, writer, queues, circuits, loop=None):
+    def __init__(self, reader, writer, circ_queues, strm_queues, circuits, loop=None):
         self.reader = reader
         self.writer = writer
-        self.queues = queues
+        self.circ_queues = circ_queues
+        self.strm_queues = strm_queues
         self.circuits = circuits # TODO: better naming/organization
         self.out_queue = asyncio.Queue()
         self.incoming_run_task = asyncio.ensure_future(self._incoming_run(), loop=loop)
@@ -60,7 +61,7 @@ class CellQueuer:
                 logger.info('bad cell %s' % exc)
                 logger.debug('bad cell %s' % cell)
             else:
-                if cell.CircID not in self.queues:
+                if cell.CircID not in self.circ_queues:
                     logger.info('got cell with nonexistent circid %s' %
                                 cell.CircID)
                     # TODO: see what spec says to do here
@@ -78,8 +79,12 @@ class CellQueuer:
                         cell = decrypt_relay_cell(hops, cell, 'fw')
                     else:
                         raise Exception('bad role')
-                logger.info('putting plaintext relaycell on queue')
-                await self.queues[cell.CircID].put(cell)
+                if hasattr(cell, 'StreamID') and cell.StreamID in self.strm_queues:
+                    logger.info('sticking it in a stream queue')
+                    await self.strm_queues[cell.StreamID].put(cell)
+                else:
+                    logger.info('putting plaintext relaycell on queue')
+                    await self.circ_queues[cell.CircID].put(cell)
 
     # TODO: easy deduping
     async def stop(self):

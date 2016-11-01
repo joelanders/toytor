@@ -3,28 +3,13 @@ from toytor.common import read_cell
 from ipaddress import IPv4Address
 import asyncio
 import logging
+import struct
 
 
 logging.basicConfig(format='%(levelname)s %(asctime)s %(name)-23s %(message)s',
                     datefmt='%H:%M:%S')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-
-async def create_stream(reader, writer, circ_id, stream_id, ip_port):
-    writer.write(bytes(CellRelay(RelayCommand="RELAY_BEGIN",
-                                 CircID=circ_id,
-                                 StreamID=stream_id,
-                                 Data=ip_port+"\x00")))
-    await writer.drain()
-    cell = await asyncio.wait_for(read_cell(reader, writer), timeout=4)
-    if not (cell.Command == CELL_COMMANDS['RELAY'] and
-            cell.RelayCommand == CELL_RELAY_COMMANDS['RELAY_CONNECTED']):
-        return False
-    connected_ip = cell.Data[:4]
-    ttl = cell.Data[4:8]
-    return IPv4Address(connected_ip).exploded, ttl
-
 
 async def handle_relay_begin(reader, writer, relay_begin_cell):
     # open tcp connection to embedded address
@@ -46,41 +31,92 @@ async def handle_relay_begin(reader, writer, relay_begin_cell):
     await writer.drain()
     return {(circ_id, stream_id): (stream_reader, stream_writer)}
 
+class SocksConnection:
+    def __init__(self, tor_connection, reader, writer):
+        self.tor_connection = tor_connection
+        self.reader = reader
+        self.writer = writer
+        self.run_task = asyncio.ensure_future(self._run())
+        self.cts_task = None
+        self.stc_task = None
+        self.stream_id = 1990 # TODO: hardcoded stream_id
 
-class ClientStream:
-    def __init__(self, port):
-        self.port = port
+    async def _run(self):
+        logger.info('accepted')
+        request = await self.reader.read(9)
+        logger.info('socks request: %s' % request)
+        if request[0] != 4: # TODO: 1-length slices of bytestrings are integers?...
+            logger.info('not socks4')
+            return
+        if request[1] != 1:
+            logger.info('not the stream connect command')
+            return
+        port = struct.unpack('>H', request[2:4])[0]
+        addr = IPv4Address(request[4:8])
+        dest_str = addr.exploded + ":" + str(port)
+        exit_resp = await self.tor_connection.create_stream(self.stream_id, dest_str)
+        if not exit_resp:
+            logger.info('exit didn\'t say yes')
+            return # TODO: proper teardown
+        else:
+            logger.info('exit said yes')
+        self.writer.write(b'\x00\x5a\x00\x00\x00\x00\x00\x00') # TODO: hardcoding response
+        self.cts_task = asyncio.ensure_future(self.cells_to_stream())
+        self.stc_task = asyncio.ensure_future(self.stream_to_cells())
+
+    async def stream_to_cells(self):
+        while True:
+            bs = await self.reader.read(498)
+            logger.info('read from socks connection: %s' % bs)
+            if not bs:
+                break
+            cell = CellRelay(
+                    RelayCommand="RELAY_DATA",
+                    CircID=self.tor_connection.circ_id,
+                    StreamID=self.stream_id,
+                    Data=bs)
+            await self.tor_connection.cell_queuer.put(cell)
+
+    async def cells_to_stream(self):
+        while True:
+            cell = await self.tor_connection.strm_queues[self.stream_id].get()
+            # TODO: do i want to interpret RELAY_ENDs here?...
+            # if not bs:
+            #     break
+            bs = cell.Data
+            logger.info('read from tor stream: %s' % bs)
+            self.writer.write(bs)
+
+    async def stop(self):
+        if self.writer:
+            self.writer.close()
+
+        for task in [self.run_task, self.cts_task, self.stc_task]:
+            task.cancel()
+            asyncio.wait(task)
+            logger.info('canceled task in SocksConnection: %s' % task)
+
+class SocksServer:
+    def __init__(self, tor_connection, socks_port):
+        self.tor_connection = tor_connection
+        self.socks_port = socks_port
+        self.socks_connections = []
 
     async def start(self):
         try:
             self._server = await \
                 asyncio.start_server(self._accept, '127.0.0.1',
-                                     self.port, backlog=1)
+                        self.socks_port, backlog=1) # TODO: I forget why I wanted this backlog
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error('exception starting ClientStream server: %s', e)
         else:
-            logger.info('ClientStream started on port %s', self.port)
+            logger.info('SocksServer started on port %s', self.socks_port)
 
-    async def _accept(self, reader, writer):
-        # TODO: this feels wrong..? I want something like:
-        # reader, writer = await accept(socket)
-        # ie. only accept the first connection.
-        self._server.close()
-        await self._server.wait_closed()
-        self.reader = reader
-        self.writer = writer
-        logger.info('accepted')
-        while True:
-            line = await reader.readline()
-            writer.write(line)
-
-    def client_to_server(self, data):  # chunk into cells
-        pass
-
-    def server_to_client(self, data):
-        pass
+    def _accept(self, reader, writer):
+        conn = SocksConnection(self.tor_connection, reader, writer)
+        self.socks_connections.append(conn)
 
     async def stop(self):
         if self._server is not None:  # TODO: only close if not already closed
@@ -88,7 +124,11 @@ class ClientStream:
             await self._server.wait_closed()
             logger.info('ControlServer %s stopped' % self._server)
 
-        self.writer.close()
+        self.writer.close() # TODO: think about this ordering
+
+        for conn in self.tor_server_connections:
+            await conn.stop()
+            logger.info('stopped SocksConnection %s' % conn)
 
 
 class ServerStream:

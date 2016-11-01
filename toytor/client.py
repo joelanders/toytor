@@ -27,7 +27,9 @@ class TorClient:
         self._writer = None
         self._version = None
         self.circuits = {}
-        self.cell_queues = {}
+        self.circ_queues = {}
+        self.streams = {}
+        self.strm_queues = {}
         self.cell_queuer = None
         self.run_task = asyncio.ensure_future(self._run())
 
@@ -53,12 +55,12 @@ class TorClient:
 
     # TODO: lock so we can only have one pending create per circuit
     async def create_circuit(self, node_id, b_public):
-        if self.circ_id in self.cell_queues:
+        if self.circ_id in self.circ_queues:
             logger.info('create_circuit getting called twice?')
             raise Exception('failed to create_circuit')
         reader_q = asyncio.Queue()
-        self.cell_queues[self.circ_id] = reader_q
-        logger.info('cell_queues: %s' % self.cell_queues)
+        self.circ_queues[self.circ_id] = reader_q
+        logger.info('circ_queues: %s' % self.circ_queues)
         keys = await create.create_circuit(reader_q, self._writer,
                                            self.circ_id, node_id, b_public)
         logger.info("create_circuit exiting fine")
@@ -70,8 +72,8 @@ class TorClient:
     async def extend_circuit(self, node_id, b_public, ip, port):
         node_id = bytes(bytearray.fromhex(node_id))
         b_public = create.PublicKey(base64.b64decode(b_public))
-        logger.info('cell_queues: %s' % self.cell_queues)
-        keys = await create.extend_circuit(self.cell_queues[self.circ_id],
+        logger.info('circ_queues: %s' % self.circ_queues)
+        keys = await create.extend_circuit(self.circ_queues[self.circ_id],
                                            self.cell_queuer, self.circ_id,
                                            node_id, b_public, ip, port)
         logger.info("extend_circuit exiting fine")
@@ -90,18 +92,39 @@ class TorClient:
                 Data=host_str))
         logger.info('sent resolve cell')
 
+    async def create_stream(self, stream_id, ip_port):
+        if ip_port[-1] != b'\x00': # TODO: more checking
+            ip_port += '\x00'
+        self.strm_queues[stream_id] = asyncio.Queue()
+        await self.cell_queuer.put(torpylle.CellRelay(
+                                   RelayCommand="RELAY_BEGIN",
+                                   CircID=self.circ_id,
+                                   StreamID=stream_id,
+                                   Data=ip_port))
+        logger.info('sent RELAY_BEGIN, waiting for RELAY_CONNECTED')
+        cell = await self.strm_queues[stream_id].get()
+        if not (cell.Command == torpylle.CELL_COMMANDS['RELAY'] and
+                cell.RelayCommand == torpylle.CELL_RELAY_COMMANDS['RELAY_CONNECTED']):
+            logger.info('instead got %s' % cell)
+            return False
+        connected_ip = cell.Data[:4]
+        ttl = cell.Data[4:8]
+        self.streams[stream_id] = {'ip': cell.Data[:4], 'ttl': cell.Data[4:8]}
+        logger.info('got RELAY_CONNECTED, create_stream returning True')
+        return True
+
     async def _run(self):
         await self._connect()
         logger.info('client connected')
         await self._handshake()
         logger.info('client handshaked')
-        self.cell_queuer = CellQueuer(self._reader, self._writer, self.cell_queues, self.circuits)
-        self.cell_queues[0] = asyncio.Queue()
+        self.cell_queuer = CellQueuer(self._reader, self._writer, self.circ_queues, self.strm_queues, self.circuits)
+        self.circ_queues[0] = asyncio.Queue()
         logger.info('client started CellQueuer')
         await self.create_circuit(self.node_id, self.b_public)
         logger.info('client circuit created')
         while True:
-            cell = await self.cell_queues[0].get()
+            cell = await self.circ_queues[0].get()
         self._writer.close()
         logger.info('Client done')
 

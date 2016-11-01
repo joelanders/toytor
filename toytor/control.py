@@ -3,6 +3,7 @@ import logging
 from toytor.client import TorClient
 from toytor.server import TorServer
 from toytor.consensus import cached_consensus, server_descriptor
+from toytor.stream import SocksServer
 import random
 
 
@@ -17,6 +18,7 @@ class ControlServerConnection:
         self.writer = writer
         self.tor_servers = []
         self.tor_clients = {}
+        self.socks_servers = []
         self.run_task = asyncio.ensure_future(self._run())
 
     async def _run(self):
@@ -56,6 +58,17 @@ class ControlServerConnection:
                 asyncio.ensure_future(
                         self.tor_clients[circ_id].resolve_host(host_str)
                 )
+            elif command == b'stream':
+                circ_id = int(line.split()[1])
+                strm_id = int(line.split()[2])
+                ip_port = line.split()[3].decode()
+                asyncio.ensure_future(
+                        self.tor_clients[circ_id].create_stream(strm_id, ip_port)
+                )
+            elif command == b'socks':
+                circ_id = int(line.split()[1])
+                socks_port = int(line.split()[2])
+                await self.add_socks(circ_id, socks_port)
             elif command == b'consensus':
                 self.consensus = await cached_consensus()
                 for relay in random.sample(
@@ -92,6 +105,12 @@ class ControlServerConnection:
     def add_client(self, circ_id, ip, port, hex_fprint, b_public):
         client = TorClient(circ_id, ip, port, hex_fprint, b_public)
         self.tor_clients[circ_id] = client
+
+    async def add_socks(self, circ_id, socks_port):
+        tor_connection = self.tor_clients[circ_id]
+        server = SocksServer(tor_connection, socks_port)
+        self.socks_servers.append(server)
+        await server.start()
 
     async def add_server(self, port):
         server = TorServer(port)
